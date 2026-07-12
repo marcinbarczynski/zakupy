@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22>🧺</text></svg>">
+<title>Zakupy</title>
+<style>
+  :root {
+    --bg: #f4f4f0;
+    --surface: #ffffff;
+    --ink: #1a1c19;
+    --muted: #6b7069;
+    --line: #e0e1da;
+    --accent: #156b3a;
+    --accent-soft: #e7f2ea;
+    --danger: #a33131;
+    --warn: #8a5a00;
+    --warn-soft: #f6ecd9;
+    --shop-rossmann: #c8102e;
+    --shadow: 0 1px 3px rgba(20, 24, 18, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a;
+      --surface: #1e2126;
+      --surface-dim: #23262b;
+      --ink: #e7e8e2;
+      --muted: #9aa098;
+      --line: #30343a;
+      --accent: #4cbf7d;
+      --accent-soft: #1d2f24;
+      --danger: #e07979;
+      --warn: #d9a94c;
+      --warn-soft: #2e2617;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+  header.page {
+    max-width: 980px; margin: 0 auto; padding: 28px 16px 8px;
+  }
+  header.page h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -.02em; }
+  header.page .sub { color: var(--muted); margin-top: 4px; font-size: 13px; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 8px 16px 120px; }
+
+  section.position { margin-top: 26px; }
+  .pos-head { display: flex; align-items: baseline; gap: 10px; padding: 0 2px 8px; }
+  .pos-idx { color: var(--muted); font-size: 12px; }
+  .pos-name { font-size: 17px; font-weight: 650; }
+  .pos-details { color: var(--muted); font-size: 13px; }
+  .pos-note {
+    background: var(--warn-soft); color: var(--warn);
+    border-radius: 8px; padding: 10px 14px; font-size: 14px;
+  }
+  .pos-empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
+
+  .rows { display: flex; flex-direction: column; gap: 6px; }
+  .row {
+    display: grid;
+    grid-template-columns: 26px 64px minmax(0, 1fr) auto auto auto;
+    gap: 12px; align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    border-radius: 10px;
+    padding: 10px 14px 10px 11px;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+  }
+  .row.selected { border-left-color: var(--accent); background: var(--accent-soft); }
+  .row.disabled { opacity: .55; cursor: default; }
+  .row input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+  .row img { width: 64px; height: 64px; object-fit: contain; border-radius: 6px; background: #fff; }
+
+  .info { min-width: 0; }
+  .info .name { font-weight: 600; }
+  .info .caption { color: var(--muted); font-size: 13px; margin-top: 1px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 5px; font-size: 12px; color: var(--muted); }
+  .chip { border-radius: 5px; padding: 1px 7px; font-size: 11.5px; font-weight: 600; }
+  .chip.shop-rossmann { color: #fff; background: var(--shop-rossmann); }
+  .chip.bought { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .chip.promo { color: var(--warn); background: var(--warn-soft); }
+  .chip.unavailable { color: var(--danger); border: 1px solid var(--danger); }
+  .meta a { color: var(--muted); }
+
+  .per-unit { text-align: right; font-size: 15px; color: var(--accent); font-weight: 650; white-space: nowrap; }
+  .per-unit .orig { display: block; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  .price { text-align: right; white-space: nowrap; font-weight: 650; font-size: 16px; }
+  .price .old { display: block; color: var(--muted); font-weight: 400; font-size: 12px; text-decoration: line-through; }
+  .price .unit { display: block; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+
+  .qty { display: flex; align-items: center; gap: 2px; }
+  .qty button {
+    width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--surface); color: var(--ink); font-size: 15px; cursor: pointer;
+  }
+  .qty input {
+    width: 34px; text-align: center; border: none; background: none; color: var(--ink);
+    font: 600 14px/1 ui-monospace, monospace;
+  }
+  .row-status { grid-column: 3 / -1; font-size: 12.5px; }
+  .row-status.ok { color: var(--accent); }
+  .row-status.err { color: var(--danger); }
+
+  footer.bar {
+    position: fixed; inset: auto 0 0 0;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+  }
+  .bar-inner {
+    max-width: 980px; margin: 0 auto; padding: 12px 16px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .bar-summary { flex: 1; min-width: 200px; }
+  .bar-summary .total { font-weight: 700; font-size: 17px; }
+  .bar-summary .hint { color: var(--muted); font-size: 12.5px; }
+  #submit {
+    border: none; border-radius: 10px; padding: 12px 22px;
+    background: var(--accent); color: #fff; font-size: 15px; font-weight: 650; cursor: pointer;
+  }
+  #submit:disabled { opacity: .5; cursor: default; }
+  #bar-status { width: 100%; font-size: 13px; }
+  #bar-status.err { color: var(--danger); }
+  #bar-status.ok { color: var(--accent); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .row { transition: background .12s ease, border-color .12s ease; }
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 700px) {
+    .row { grid-template-columns: 22px 48px minmax(0,1fr) auto; grid-auto-rows: auto; }
+    .row img { width: 48px; height: 48px; }
+    .per-unit { grid-column: 3; text-align: left; margin-top: 4px; }
+    .price { grid-column: 4; }
+    .qty { grid-column: 4; justify-self: end; }
+  }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1 id="title">Zakupy</h1>
+  <div class="sub" id="subtitle"></div>
+</header>
+<main id="main"></main>
+<footer class="bar">
+  <div class="bar-inner">
+    <div class="bar-summary">
+      <div class="total" id="bar-total">Nic nie zaznaczono</div>
+      <div class="hint">Zaznaczone produkty trafią do koszyka na koncie sklepu.</div>
+    </div>
+    <button id="submit" disabled>Dodaj zaznaczone do koszyka</button>
+    <div id="bar-status"></div>
+  </div>
+</footer>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const zl = v => v == null ? "" :
+  v.toLocaleString("pl-PL", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " zł";
+const plDate = iso => {
+  if (!iso) return "";
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}.${m}.${y}`;
+};
+
+// klucz wyboru -> {candidate, qty}; disabled nigdy nie trafia do selection
+const selection = new Map();
+const key = c => `${c.shop}:${c.id}`;
+
+function candidateRow(c, posIdx, candIdx) {
+  const id = `cand-${posIdx}-${candIdx}`;
+  const norm = c.pricePerUnitNormalized;
+  const rating = c.rating ? `★ ${c.rating.toLocaleString("pl-PL")}${c.totalReviews ? ` (${c.totalReviews})` : ""}` : "";
+  return `
+  <div class="row${c.disabled ? " disabled" : ""}" id="${id}" data-key="${esc(key(c))}">
+    <input type="checkbox" ${c.disabled ? "disabled" : ""} aria-label="Wybierz: ${esc(c.fullName)}">
+    <img src="${esc(c.picture || "")}" alt="" loading="lazy">
+    <div class="info">
+      <div class="name">${esc(c.fullName)}</div>
+      <div class="caption">${esc(c.caption || "")}</div>
+      <div class="meta">
+        <span class="chip shop-${esc(c.shop)}">${esc(c.shop)}</span>
+        ${c.disabled ? `<span class="chip unavailable">${esc(c.disabledReason || "niedostępny")}</span>` : ""}
+        ${c.bought ? `<span class="chip bought">kupowane ×${c.bought.times} · ost. ${plDate(c.bought.lastDate)}</span>` : ""}
+        ${c.promotion ? `<span class="chip promo">${esc(c.promotion)}</span>` : ""}
+        ${rating ? `<span>${esc(rating)}</span>` : ""}
+        ${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">strona produktu ↗</a>` : ""}
+      </div>
+    </div>
+    <div class="per-unit mono">${norm ? `${zl(norm.value)}/${esc(norm.unit)}` : ""}
+      ${c.pricePerUnit ? `<span class="orig">${esc(c.pricePerUnit)}</span>` : ""}</div>
+    <div class="price mono">${zl(c.price)}
+      ${c.oldPrice ? `<span class="old">${zl(c.oldPrice)}</span>` : ""}
+      ${c.unit ? `<span class="unit">za ${esc(c.unit)}</span>` : ""}</div>
+    ${c.disabled ? "<span></span>" : `
+    <div class="qty" aria-label="Ilość">
+      <button type="button" data-step="-1" aria-label="Mniej">−</button>
+      <input type="text" value="1" inputmode="numeric" aria-label="Ilość sztuk">
+      <button type="button" data-step="1" aria-label="Więcej">+</button>
+    </div>`}
+    <div class="row-status" hidden></div>
+  </div>`;
+}
+
+function render() {
+  document.getElementById("title").textContent = `Zakupy — ${DATA.listName}`;
+  const nCand = DATA.positions.reduce((a, p) => a + p.candidates.length, 0);
+  document.getElementById("subtitle").textContent =
+    `${DATA.positions.length} pozycji · ${nCand} propozycji · wygenerowano ${plDate(DATA.generatedAt)}`;
+
+  document.getElementById("main").innerHTML = DATA.positions.map((pos, i) => `
+    <section class="position">
+      <div class="pos-head">
+        <span class="pos-idx mono">${i + 1}/${DATA.positions.length}</span>
+        <span class="pos-name">${esc(pos.name)}</span>
+        ${pos.details ? `<span class="pos-details">${esc(pos.details)}</span>` : ""}
+      </div>
+      ${pos.note ? `<div class="pos-note">${esc(pos.note)}</div>` : ""}
+      ${pos.candidates.length
+        ? `<div class="rows">${pos.candidates.map((c, j) => candidateRow(c, i, j)).join("")}</div>`
+        : (pos.note ? "" : `<div class="pos-empty">Brak trafnych propozycji w sklepie.</div>`)}
+    </section>`).join("");
+
+  const byKey = new Map();
+  DATA.positions.forEach(p => p.candidates.forEach(c => byKey.set(key(c), c)));
+
+  document.querySelectorAll(".row").forEach(row => {
+    const cand = byKey.get(row.dataset.key);
+    const checkbox = row.querySelector("input[type=checkbox]");
+    const qtyInput = row.querySelector(".qty input");
+    const readQty = () => Math.min(99, Math.max(1, parseInt(qtyInput?.value, 10) || 1));
+
+    const sync = () => {
+      if (qtyInput) qtyInput.value = readQty();
+      if (checkbox.checked) selection.set(row.dataset.key, {cand, qty: readQty()});
+      else selection.delete(row.dataset.key);
+      row.classList.toggle("selected", checkbox.checked);
+      updateBar();
+    };
+    checkbox.addEventListener("change", sync);
+    qtyInput?.addEventListener("change", sync);
+    row.querySelectorAll(".qty button").forEach(btn =>
+      btn.addEventListener("click", () => {
+        qtyInput.value = Math.min(99, Math.max(1, readQty() + Number(btn.dataset.step)));
+        if (!checkbox.checked) checkbox.checked = true;
+        sync();
+      }));
+    // klik w cały wiersz zaznacza; elementy interaktywne (link, +/−, pola) obsługują się same
+    row.addEventListener("click", e => {
+      if (cand.disabled || e.target.closest("a, button, input")) return;
+      checkbox.checked = !checkbox.checked;
+      sync();
+    });
+  });
+}
+
+function updateBar() {
+  const items = [...selection.values()];
+  const total = items.reduce((a, s) => a + (s.cand.price || 0) * s.qty, 0);
+  const count = items.reduce((a, s) => a + s.qty, 0);
+  document.getElementById("bar-total").textContent = items.length
+    ? `Zaznaczone: ${items.length} prod. (${count} szt.) · razem ${zl(total)}`
+    : "Nic nie zaznaczono";
+  document.getElementById("submit").disabled = !items.length;
+}
+
+async function submit() {
+  const button = document.getElementById("submit");
+  const status = document.getElementById("bar-status");
+  const items = [...selection.values()].map(s => ({shop: s.cand.shop, id: s.cand.id, qty: s.qty}));
+  button.disabled = true;
+  status.className = "";
+  status.textContent = "Dodaję do koszyka…";
+  try {
+    const resp = await fetch("/api/cart", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({items}),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const {results} = await resp.json();
+    let okCount = 0;
+    for (const r of results) {
+      const row = document.querySelector(`.row[data-key="${CSS.escape(`${r.shop}:${r.id}`)}"]`);
+      const line = row?.querySelector(".row-status");
+      if (line) {
+        line.hidden = false;
+        line.className = `row-status ${r.ok ? "ok" : "err"}`;
+        line.textContent = r.ok ? `✓ w koszyku — ${r.message}` : `✗ ${r.message}`;
+      }
+      if (r.ok) okCount++;
+    }
+    const failed = results.length - okCount;
+    status.className = failed ? "err" : "ok";
+    status.textContent = failed
+      ? `Dodano ${okCount} z ${results.length} — sprawdź pozycje z błędem.`
+      : `Dodano do koszyka: ${okCount} prod. Koszyk czeka na koncie sklepu.`;
+  } catch (e) {
+    status.className = "err";
+    status.textContent = `Nie udało się dodać: ${e.message}. Czy serwer strony nadal działa?`;
+  } finally {
+    button.disabled = !selection.size;
+  }
+}
+
+render();
+updateBar();
+document.getElementById("submit").addEventListener("click", submit);
+</script>
+</body>
+</html>
