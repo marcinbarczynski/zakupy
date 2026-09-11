@@ -60,6 +60,7 @@ class Product:
     unit: str | None = None
     ean: list[str] = field(default_factory=list)
     availability: str | None = None
+    available_quantity: int | None = None
     category: str | None = None
     url: str | None = None
     promotion: str | None = None
@@ -142,6 +143,7 @@ class Product:
             "unit": self.unit,
             "ean": self.ean,
             "availability": self.availability,
+            "availableQuantity": self.available_quantity,
             "category": self.category,
             "url": self.url,
             "promotion": self.promotion,

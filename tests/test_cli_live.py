@@ -28,10 +28,21 @@ def test_search_json_contract():
 
 
 def test_cheapest_json_sorted_per_unit():
+    """Ranking idzie rosnąco w obrębie jednostki bazowej.
+
+    Cen z różnych baz (zł/l vs zł/szt.) nie da się porównywać między sobą, więc
+    cheapest sortuje po (jednostka, wartość) — globalne sortowanie samych kwot
+    nie jest kontraktem tej komendy.
+    """
     proc = run_cli("cheapest", "mydło w płynie", "--per-unit", "--limit", "5", "--json")
     assert proc.returncode == 0, proc.stderr
-    values = [p["pricePerUnitValue"] for p in json.loads(proc.stdout)]
-    assert values and values == sorted(values)
+    products = json.loads(proc.stdout)
+    assert products
+    pairs = [
+        (p["pricePerUnitNormalized"]["unit"], p["pricePerUnitNormalized"]["value"])
+        for p in products
+    ]
+    assert pairs == sorted(pairs)
 
 
 def test_whoami_json_returns_account_email():

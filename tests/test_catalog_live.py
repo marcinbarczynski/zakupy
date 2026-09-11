@@ -118,3 +118,39 @@ def test_per_unit_parser_examples():
     for text, expected in cases.items():
         p = Product(id=1, name="x", price_per_unit=text)
         assert p.price_per_unit_normalized == expected, text
+
+
+def test_product_details_reports_real_stock(client):
+    """Szczegóły produktu niosą realny stan ze strony, nie flagę katalogową.
+
+    Katalog (payload Synerise) zwraca "available" także dla produktów chwilowo
+    niedostępnych — stan bierzemy z JSON-LD i courierStock strony produktu.
+    """
+    products = catalog.cheapest(client, query="szampon", limit=3, verify=False)
+    assert products
+    for p in products:
+        detailed = catalog.product_details(client, p.id)
+        assert detailed.availability in ("available", "unavailable")
+        assert detailed.available_quantity is None or detailed.available_quantity >= 0
+        if detailed.availability == "available":
+            assert detailed.available_quantity is None or detailed.available_quantity > 0
+        else:
+            assert detailed.available_quantity in (None, 0)
+
+
+def test_cheapest_verify_stock_filters_out_of_stock(client):
+    """Z weryfikacją stanu w wynikach zostają tylko produkty faktycznie do kupienia."""
+    verified = catalog.cheapest(
+        client, query="płyn do prania", per_unit=True, limit=5, verify=True
+    )
+    assert verified
+    for p in verified:
+        assert p.availability == "available"
+        assert p.available_quantity is None or p.available_quantity > 0
+
+
+def test_cheapest_without_verification_skips_stock_lookup(client):
+    """Bez weryfikacji nie ma dodatkowych pobrań — stan zostaje nieustalony."""
+    raw = catalog.cheapest(client, query="płyn do prania", per_unit=True, limit=5, verify=False)
+    assert raw
+    assert all(p.available_quantity is None for p in raw)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterator
 
 import httpx
@@ -21,6 +22,11 @@ ORDERS = ("default", "priceAsc", "priceDesc", "newestFirst")
 _NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S
 )
+
+# Stan magazynowy z JSON-LD strony produktu. Pole "availability" z payloadu Synerise
+# to flaga katalogowa ("produkt jest w ofercie"), nie stan — potrafi zwracać
+# "available" dla produktu z zerowym stanem.
+_SCHEMA_AVAIL_RE = re.compile(r'"availability":"https://schema\.org/(\w+)"')
 
 
 def _extract_next_data(html: str) -> dict[str, Any]:
@@ -101,6 +107,40 @@ def categories(client: httpx.Client) -> list[Category]:
     return search(client).categories
 
 
+def _page_stock(html: str) -> tuple[str | None, int | None]:
+    """Realny stan ze strony produktu: (availability, available_quantity).
+
+    Dwa niezależne sygnały — JSON-LD schema.org oraz courierStock magazynu wysyłkowego.
+    Zwraca (None, None), gdy strona nie niesie żadnego z nich; wtedy wołający zostaje
+    przy wartości z katalogu.
+    """
+    m = _SCHEMA_AVAIL_RE.search(html)
+    availability = None
+    if m:
+        availability = "available" if m.group(1) == "InStock" else "unavailable"
+    quantity = None
+    try:
+        # Strona produktu zagnieżdża pageProps dwukrotnie — pojedyncze daje null.
+        page_props = _extract_next_data(html).get("props", {}).get("pageProps", {})
+        data = ((page_props.get("pageProps") or {}).get("courierStock") or {}).get("data") or {}
+        value = data.get("availableQuantity")
+        if isinstance(value, int):
+            quantity = value
+    except (ParseError, json.JSONDecodeError, AttributeError):
+        pass
+    if availability is None and quantity is not None:
+        availability = "available" if quantity > 0 else "unavailable"
+    return availability, quantity
+
+
+def _apply_stock(product: Product, html: str) -> Product:
+    availability, quantity = _page_stock(html)
+    if availability is not None:
+        product.availability = availability
+    product.available_quantity = quantity
+    return product
+
+
 def product_details(client: httpx.Client, product_id: int) -> Product:
     """Szczegóły produktu: znajdź po ID przez wyszukiwarkę, potem pobierz stronę produktu."""
     found = search(client, query=str(product_id))
@@ -113,9 +153,8 @@ def product_details(client: httpx.Client, product_id: int) -> Product:
     resp = client.get(url)
     resp.raise_for_status()
     raw = _find_product_dict(_extract_next_data(resp.text).get("props", {}), product_id)
-    if raw is None:
-        return matches[0]
-    return Product.from_api(raw)
+    product = matches[0] if raw is None else Product.from_api(raw)
+    return _apply_stock(product, resp.text)
 
 
 def _find_product_dict(node: Any, product_id: int, depth: int = 0) -> dict[str, Any] | None:
@@ -136,6 +175,33 @@ def _find_product_dict(node: Any, product_id: int, depth: int = 0) -> dict[str, 
     return None
 
 
+def verify_stock(
+    client: httpx.Client, products: list[Product], max_workers: int = 6
+) -> list[Product]:
+    """Uzupełnij produkty o realny stan ze stron produktowych (w miejscu).
+
+    Jedno pobranie strony na produkt, równolegle. Produkty bez URL-a zostają
+    nietknięte; błąd pobrania też nie psuje reszty — taki produkt zachowuje
+    wartość z katalogu.
+    """
+
+    def fetch(product: Product) -> None:
+        if not product.url:
+            return
+        try:
+            resp = client.get(product.url)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return
+        _apply_stock(product, resp.text)
+
+    targets = [p for p in products if p.url]
+    if targets:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            list(pool.map(fetch, targets))
+    return products
+
+
 def cheapest(
     client: httpx.Client,
     query: str | None = None,
@@ -144,12 +210,17 @@ def cheapest(
     available_only: bool = True,
     limit: int = 10,
     scan_pages: int = 3,
+    verify: bool = True,
 ) -> list[Product]:
     """Najtańsze produkty dla frazy/kategorii.
 
     Przy per_unit=True sortowanie odbywa się po cenie za jednostkę po stronie
     klienta — skanujemy scan_pages stron posortowanych rosnąco po cenie, więc
     wynik jest przybliżeniem wystarczającym dla listy zakupów.
+
+    verify=True dokłada po jednym pobraniu strony produktu dla najlepszych
+    kandydatów i odsiewa te bez stanu magazynowego — katalog sam z siebie zwraca
+    produkty chwilowo niedostępne jako "available".
     """
     collected: list[Product] = []
     page = 1
@@ -172,4 +243,10 @@ def cheapest(
         )
     else:
         collected.sort(key=lambda p: (p.price is None, p.price))
+    if verify:
+        # Weryfikujemy zapas nad limit, bo część kandydatów odpadnie — sprawdzanie
+        # dopiero po przycięciu zwracałoby mniej wyników niż limit.
+        collected = verify_stock(client, collected[: limit * 2])
+        if available_only:
+            collected = [p for p in collected if p.availability == "available"]
     return collected[:limit]

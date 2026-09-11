@@ -113,8 +113,14 @@ def product(product_id, as_json) -> None:
 @click.option("--per-unit", is_flag=True, help="Sortuj po cenie za jednostkę (np. za 100 ml)")
 @click.option("--include-unavailable", is_flag=True)
 @click.option("--limit", type=int, default=10)
+@click.option(
+    "--verify-stock/--no-verify-stock",
+    default=True,
+    help="Sprawdź realny stan magazynowy na stronach produktów (wolniej, ale katalog "
+    "pokazuje chwilowo niedostępne jako dostępne)",
+)
 @click.option("--json", "as_json", is_flag=True)
-def cheapest(query, category, per_unit, include_unavailable, limit, as_json) -> None:
+def cheapest(query, category, per_unit, include_unavailable, limit, verify_stock, as_json) -> None:
     """Najtańsze produkty dla frazy lub kategorii."""
     with make_client() as client:
         products = catalog.cheapest(
@@ -124,6 +130,7 @@ def cheapest(query, category, per_unit, include_unavailable, limit, as_json) -> 
             per_unit=per_unit,
             available_only=not include_unavailable,
             limit=limit,
+            verify=verify_stock,
         )
     if as_json:
         click.echo(json.dumps([p.to_dict() for p in products], ensure_ascii=False, indent=2))
