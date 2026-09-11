@@ -1,4 +1,5 @@
 .rossmann
+.allegro
 .venv/
 __pycache__/
 *.egg-info/

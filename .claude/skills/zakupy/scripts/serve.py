@@ -28,6 +28,7 @@ _DEFAULT_TEMPLATE = _SKILL_DIR / "assets" / "template.html"
 # shop -> szablon komendy dodania do koszyka; uruchamiana w --repo (cwd)
 _SHOP_COMMANDS = {
     "rossmann": ["uv", "run", "rossmann", "basket", "add", "{id}", "--qty", "{qty}"],
+    "allegro": ["uv", "run", "allegro", "basket", "add", "{id}", "--qty", "{qty}"],
 }
 
 

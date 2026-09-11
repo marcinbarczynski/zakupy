@@ -1,6 +1,6 @@
 ---
 name: zakupy
-description: Robi zakupy z listy (JSON z pozycjami name+details) w rossmann.pl - dla każdej pozycji proponuje produkty (kupowane wcześniej + najtańsze za jednostkę), generuje interaktywną stronę z wyborem i dodaje zaznaczone do koszyka. Użyj gdy użytkownik chce zrobić zakupy z listy, np. "/zakupy example-list.json" albo "zrób zakupy z listy X".
+description: Robi zakupy z listy (JSON z pozycjami name+details) w rossmann.pl i allegro.pl - dla każdej pozycji proponuje produkty (kupowane wcześniej + najtańsze za jednostkę), generuje interaktywną stronę z wyborem i dodaje zaznaczone do koszyków. Użyj gdy użytkownik chce zrobić zakupy z listy, np. "/zakupy example-list.json" albo "zrób zakupy z listy X".
 ---
 
 # Zakupy z listy
@@ -10,26 +10,35 @@ format: `[{"name": "...", "details": "..."}]`. `details` może nieść dodatkowe
 (marka, pojemność, sklep) — uwzględnij je przy doborze.
 
 Wynik: strona na `http://localhost:8765` z propozycjami per pozycja; użytkownik zaznacza
-produkty i klika przycisk, który dodaje je do koszyka na koncie rossmann.pl.
+produkty i klika przycisk, który dodaje je do koszyków na kontach rossmann.pl / allegro.pl.
 
 Wszystkie komendy CLI uruchamiaj z korzenia repo rossmann (tam gdzie `pyproject.toml`
-z pakietem `rossmann`). Pliki robocze pisz do `out/` w korzeniu repo.
+z pakietami `rossmann` i `allegro`). Pliki robocze pisz do `out/` w korzeniu repo.
+
+**Uwaga do CLI allegro**: każde wywołanie steruje przeglądarką na trwałym profilu —
+wywołania `allegro ...` odpalaj WYŁĄCZNIE sekwencyjnie (nigdy `&`/równolegle; profil
+znosi jedną instancję naraz) i licz się z ~5–10 s na wywołanie. Komendy `rossmann`
+można batchować jak dotąd.
 
 ## Krok 1: historia zakupów (raz na przebieg)
 
 ```bash
 uv run rossmann orders products --json > out/history.json
+uv run allegro orders products --json > out/allegro-history.json
 ```
 
-Agregat kupionych produktów: `id`, `brand`, `caption`, `timesBought`, `totalQuantity`,
-`lastOrderDate`, `lastUnitPrice`, `picture`, `url`. Id są zgodne z katalogiem.
+Agregat kupionych produktów rossmann: `id`, `brand`, `caption`, `timesBought`,
+`totalQuantity`, `lastOrderDate`, `lastUnitPrice`, `picture`, `url` (id zgodne
+z katalogiem). Allegro analogicznie, tylko klucz oferty to `offerId` + `seller`.
 
 ## Krok 2: kandydaci per pozycja listy
 
-Pozycje wskazujące inny sklep (np. „allegro" w name/details) pomiń w wyszukiwaniu —
-w danych strony ustaw `note: "poza Rossmannem — <sklep>"` i pustych kandydatów.
+Sklep domyślny to rossmann; pozycję szukaj w allegro gdy (a) name/details wskazuje
+allegro, (b) to produkt spożywczy/specjalistyczny spoza asortymentu drogerii, albo
+(c) w rossmannie brak sensownych trafień. Pozycje wskazujące jeszcze inny sklep pomiń —
+`note: "poza obsługiwanymi sklepami — <sklep>"` i puści kandydaci.
 
-Dla pozostałych pozycji:
+Dla pozycji rossmann:
 
 1. **Historia najpierw**: dopasuj semantycznie produkty z historii do pozycji
    (po brand/name/caption — sam oceń trafność, np. „Magiczna gąbka" ↔ „DOMOL Magic Pad
@@ -49,8 +58,27 @@ Dla pozostałych pozycji:
    Cel: użytkownik robi zakupy raz w miesiącu i ma zobaczyć „płyn, który zawsze
    kupujemy", nawet gdy chwilowo niedostępny — obok dostępnych alternatyw.
 
-Batchuj wywołania CLI (kilka `&` + `wait`, wyjścia do plików w `out/`), zamiast
-odpalać po jednym.
+Batchuj wywołania CLI rossmann (kilka `&` + `wait`, wyjścia do plików w `out/`),
+zamiast odpalać po jednym.
+
+Dla pozycji allegro (sekwencyjnie!):
+
+1. **Historia najpierw**: dopasuj pozycję do `out/allegro-history.json`; trafione
+   oferty odśwież przez `uv run allegro offers <productId> --json` (inni sprzedawcy
+   tego samego produktu) albo pokaż wprost z historii.
+2. **Wyszukiwarka**: `uv run allegro cheapest "<fraza>" --limit 10 --json > out/a/<n>.json`.
+   Ranking jest już po **efektywnej cenie jednostkowej** (`effectiveUnitPrice`):
+   oferty Smart liczone bez dostawy, pozostałe z dostawą.
+3. **Specyfika allegro przy selekcji (~5 kandydatów)**:
+   - ten sam produkt sprzedaje wielu sprzedawców w różnych krotnościach (1 szt. vs
+     zestaw 3 szt.) — porównuj po `effectiveUnitPrice`, nie po `price`;
+   - **preferuj oferty `smart: true`** — użytkownik ma Allegro Smart i przy koszyku
+     od 49,90 zł dostawa ofert Smart jest darmowa; dla ofert nie-Smart uczciwą ceną
+     jest `priceWithDelivery`;
+   - `sponsored: true` pokazuj tylko gdy realnie najtańsze (to reklamy);
+   - sprawdzaj sensowność `effectiveUnitPrice` — sprzedawcy wpisują błędne ceny
+     jednostkowe (CLI koryguje je z tytułu, ale tytuły też bywają mętne);
+   - zwracaj uwagę na `seller.positivePercent` (unikaj < 97%).
 
 ## Krok 3: dane strony — `out/data.json`
 
@@ -81,10 +109,21 @@ Schemat niezależny od sklepu (przyszłe sklepy = kolejne wartości `shop`):
 }
 ```
 
-`url` zawsze absolutny (katalog zwraca względne — doklej `https://www.rossmann.pl`).
-`bought: null` gdy produkt nie występuje w historii. `promotion` przepisz na czytelną
-etykietę (typ `"rossmann"` → `"promocja"`, `"mega"` → `"MEGA cena"`) — surowy typ
-`"rossmann"` myliłby się na stronie z chipem sklepu.
+`url` zawsze absolutny (katalog rossmann zwraca względne — doklej
+`https://www.rossmann.pl`; allegro zwraca absolutne). `bought: null` gdy produkt nie
+występuje w historii. `promotion` przepisz na czytelną etykietę (typ `"rossmann"` →
+`"promocja"`, `"mega"` → `"MEGA cena"`) — surowy typ `"rossmann"` myliłby się na
+stronie z chipem sklepu.
+
+Mapowanie kandydata allegro na schemat: `shop: "allegro"`, `id` = `offerId` (string),
+`fullName` = `title`, `caption` = `"@<seller.login> · Smart, dostawa 0 zł od 49,90"`
+albo `"@<seller.login> · +<deliveryLowest> zł dostawa"`, `price`, `pricePerUnitNormalized`
+= `effectiveUnitPrice`, `promotion`: `"Smart"` dla ofert Smart, `availability`:
+`"available"` gdy `cartAvailable`, `bought` z `out/allegro-history.json`.
+
+Po zbudowaniu `data.json` sprawdź: jeśli suma zaznaczalnych pozycji Smart z allegro
+może nie przekroczyć 49,90 zł, dodaj pozycjom allegro notkę, że poniżej tego progu
+dostawa Smart nie będzie darmowa.
 
 ## Krok 4: serwer
 
@@ -94,5 +133,6 @@ uv run python .claude/skills/zakupy/scripts/serve.py --data out/data.json --port
 
 Uruchom w tle, sprawdź `curl -s localhost:8765 | head -1`, podaj użytkownikowi link.
 Serwer renderuje `assets/template.html` z wstrzykniętymi danymi, a `POST /api/cart`
-dodaje zaznaczone produkty przez `uv run rossmann basket add <id> --qty <n>`
-(dispatch po polu `shop` — nowy sklep to nowa komenda w `serve.py`).
+dodaje zaznaczone produkty przez `uv run <sklep> basket add <id> --qty <n>`
+(dispatch po polu `shop` w `_SHOP_COMMANDS` w `serve.py`; obsługiwane: rossmann,
+allegro — pozycje allegro dodają się wolniej, bo CLI steruje przeglądarką).
