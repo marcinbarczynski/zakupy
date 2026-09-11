@@ -135,14 +135,57 @@ def whoami(as_json) -> None:
 
 
 @main.command()
-def unblock() -> None:
-    """Otwórz okno przeglądarki, żeby ręcznie rozwiązać captchę DataDome."""
-    from .browser import BASE_URL
+@click.option("--query", default="domestos", help="Fraza, którą sondujemy blokadę")
+@click.option("--url", help="Konkretny adres zwracający captchę (pomija sondowanie)")
+def unblock(query, url) -> None:
+    """Otwórz okno przeglądarki, żeby ręcznie rozwiązać captchę DataDome.
+
+    Captcha prawie nigdy nie wisi na stronie głównej — pojawia się głębiej,
+    najczęściej na /oferty-produktu. Otwarcie samego allegro.pl nie pokaże więc
+    nic do rozwiązania, dlatego przechodzimy tę samą ścieżkę co wyszukiwanie
+    (strona główna -> listing -> oferty produktu) i zatrzymujemy się na
+    pierwszym adresie, który faktycznie pokazuje captchę.
+    """
+    from .browser import BASE_URL, is_blocked, maybe_accept_consent
+    from .listing import listing_url
 
     with open_page(headful=True) as page:
-        page.goto(BASE_URL + "/", wait_until="domcontentloaded")
-        click.echo("Rozwiąż captchę / sprawdź stronę w oknie; Enter zamyka przeglądarkę…")
+
+        def visit(target: str) -> bool:
+            page.goto(target, wait_until="domcontentloaded")
+            maybe_accept_consent(page)
+            return is_blocked(page)
+
+        if url:
+            blocked_at = url if visit(url) else None
+        else:
+            blocked_at = None
+            for target in (BASE_URL + "/", listing_url(query, "p")):
+                if visit(target):
+                    blocked_at = target
+                    break
+            if blocked_at is None:
+                # listing przeszedł — spróbuj strony ofert pierwszego produktu,
+                # bo to na niej DataDome blokuje najczęściej
+                for offer in listing.search(page, query, sort="price").offers:
+                    if offer.product_id:
+                        target = f"{BASE_URL}/oferty-produktu/{offer.product_id}"
+                        if visit(target):
+                            blocked_at = target
+                        break
+
+        if blocked_at:
+            click.echo(f"Captcha na: {blocked_at}")
+            click.echo("Rozwiąż ją w oknie, potem wciśnij Enter…")
+        else:
+            click.echo("Nie znalazłem captchy — sesja wygląda na sprawną.")
+            click.echo("Sprawdź stronę w oknie; Enter zamyka przeglądarkę…")
         input()
+        still_blocked = is_blocked(page)
+
+    if still_blocked:
+        _fail("captcha nadal blokuje tę stronę — spróbuj ponownie")
+    click.echo("OK — strona się ładuje.")
 
 
 @main.group()

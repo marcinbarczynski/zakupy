@@ -28,7 +28,7 @@ SORT_MAP = {
 _SKIP_ELEMENT_TYPES = {"banner", "label"}
 
 
-def _listing_url(
+def listing_url(
     query: str,
     order: str | None = None,
     price_from: float | None = None,
@@ -73,7 +73,7 @@ def _fetch_listing(page: "Page", url: str, query: str | None, page_num: int) -> 
     except ParseError:
         # przekierowanie na stronę marki/kampanii — wymuszenie order zwykle je omija
         if query is not None and "/listing" not in page.url:
-            goto(page, _listing_url(query, order="m", page_num=page_num))
+            goto(page, listing_url(query, order="m", page_num=page_num))
             state = listing_state(page)
         else:
             raise
@@ -88,7 +88,7 @@ def search(
     price_to: float | None = None,
     page_num: int = 1,
 ) -> SearchResult:
-    url = _listing_url(query, SORT_MAP[sort], price_from, price_to, page_num)
+    url = listing_url(query, SORT_MAP[sort], price_from, price_to, page_num)
     return _fetch_listing(page, url, query, page_num)
 
 

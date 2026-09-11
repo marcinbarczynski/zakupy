@@ -145,7 +145,7 @@ def _save_cookies(ctx: Any) -> None:
         pass
 
 
-def _looks_blocked(page: "Page") -> bool:
+def is_blocked(page: "Page") -> bool:
     """Strona-przekładka DataDome: malutki dokument z captchą z captcha-delivery.com."""
     try:
         html = page.content()
@@ -154,7 +154,7 @@ def _looks_blocked(page: "Page") -> bool:
     return "captcha-delivery.com" in html and len(html) < 50_000
 
 
-def _maybe_accept_consent(page: "Page") -> None:
+def maybe_accept_consent(page: "Page") -> None:
     """Zamknij dialog zgód (pierwsze uruchomienie profilu); brak dialogu to nie błąd."""
     try:
         button = page.locator('button[data-role="accept-consent"]')
@@ -170,22 +170,27 @@ def _maybe_accept_consent(page: "Page") -> None:
 def goto(page: "Page", url: str, *, warm_up: bool = True) -> None:
     """Nawigacja z obsługą zgód i przekładki DataDome.
 
-    Świeży profil bywa blokowany na /listing, ale strona główna przechodzi
-    i ustawia cookie DataDome — stąd rozgrzewka i jedna ponowna próba.
+    Strona główna przechodzi praktycznie zawsze i odświeża cookie DataDome —
+    stąd rozgrzewka i jedna ponowna próba. Blokada jest zwykle chwilowym
+    limitem tempa (seria wywołań pod rząd) i najczęściej trafia w
+    /oferty-produktu, nie w /listing — sprawdzone 2026-09-11.
     """
     page.goto(url, wait_until="domcontentloaded")
-    _maybe_accept_consent(page)
-    if not _looks_blocked(page):
+    maybe_accept_consent(page)
+    if not is_blocked(page):
         return
     if warm_up:
         page.goto(BASE_URL + "/", wait_until="domcontentloaded")
-        _maybe_accept_consent(page)
+        maybe_accept_consent(page)
         page.wait_for_timeout(1_000)
         page.goto(url, wait_until="domcontentloaded")
-        if not _looks_blocked(page):
+        if not is_blocked(page):
             return
     raise BlockedError(
-        "DataDome pokazał captchę — uruchom `allegro unblock`, rozwiąż ją w oknie i spróbuj ponownie"
+        f"DataDome pokazał captchę na {url}\n"
+        "Najczęściej to chwilowy limit tempa (seria wywołań pod rząd), a nie trwała "
+        "blokada konta — odczekaj kilka minut i spróbuj ponownie.\n"
+        f"Jeśli wraca uparcie, rozwiąż captchę ręcznie: allegro unblock --url '{url}'"
     )
 
 
