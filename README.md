@@ -4,17 +4,59 @@ Interfejsy do wyszukiwania produktów, sprawdzania cen i operowania na koszykach
 kont rossmann.pl i allegro.pl. Pomyślane jako fundament pod skilla do robienia
 list zakupów (konkretne produkty albo najtańsze z kategorii).
 
-## Wymagania
+## Szybki start
 
-- [uv](https://docs.astral.sh/uv/)
-- plik `.rossmann` (rossmann) i `.allegro` (allegro) w korzeniu projektu
-  (nie commitować! oba są w `.gitignore`):
+### 1. Dane logowania
+
+W korzeniu projektu utwórz `.rossmann` (rossmann) i `.allegro` (allegro),
+oba w tym samym formacie:
 
 ```
 EMAIL=twoj@email.pl
 PASSWORD=twoje-haslo
 ```
 
+Oba pliki są w `.gitignore` — nie commitować. Zaloguj się raz na każdym koncie:
+
+```bash
+uv run rossmann login
+uv run allegro login --headful   # --headful: captchę/2FA przechodzisz w oknie
+```
+
+Sesja rossmanna ląduje w `~/.cache/rossmann-cli/`, allegro w profilu
+przeglądarki w `~/.cache/allegro-cli/` — kolejne wywołania nie pytają o hasło.
+
+### 2. Przygotuj listę
+
+Plik JSON z pozycjami `name` + `details`. `details` jest opcjonalne i niesie
+dodatkowe wymagania: markę, pojemność, wskazanie sklepu. Wzór w repo:
+`example-list.json`.
+
+```json
+[
+  {"name": "Domestos", "details": "płyn do WC"},
+  {"name": "Chusteczki higieniczne", "details": "pudełka do domu"},
+  {"name": "Pasta do zębów", "details": ""}
+]
+```
+
+### 3. Użyj skilla
+
+W Claude Code, z katalogu repo:
+
+```
+/zakupy example-list.json
+```
+
+Skill dopasuje pozycje do historii zakupów, dobierze najtańsze odpowiedniki
+i wystawi stronę na `http://localhost:8765`. Zaznaczasz produkty i ilości,
+klikasz przycisk — wybrane trafiają do koszyków na kontach. Zamówienie
+składasz już sam, w sklepie.
+
+## Wymagania
+
+- [uv](https://docs.astral.sh/uv/)
+- dane logowania w `.rossmann` / `.allegro` (patrz krok 1)
 - dla `allegro` dodatkowo: zainstalowany Google Chrome i **aktywna sesja
   graficzna** (CLI steruje prawdziwą przeglądarką — patrz niżej).
 
@@ -83,7 +125,7 @@ uv run allegro cheapest "płyn do wc" [--per-unit/--no-per-unit] [--smart/--no-s
 # Konto (dane z .allegro; sesja w profilu przeglądarki + ~/.cache/allegro-cli/cookies.json)
 uv run allegro login [--headful]   # --headful gdy trzeba przejść captchę/2FA w oknie
 uv run allegro whoami [--json]
-uv run allegro unblock             # okno do ręcznego odblokowania captchy DataDome
+uv run allegro unblock [--url ADRES] [--query FRAZA]  # okno do ręcznego przejścia captchy
 
 # Historia zakupów i koszyk
 uv run allegro orders list [--limit N] [--json]
@@ -130,7 +172,14 @@ uv run allegro basket clear
   równolegle.
 - Struktura stron ustalona przez inspekcję 2026-07-12 — to nieoficjalny
   interfejs; przy zmianie frontu parser głośno zgłosi `ParseError`, a przy
-  blokadzie `BlockedError` z instrukcją `allegro unblock`.
+  blokadzie `BlockedError` z zablokowanym adresem.
+- **Blokada DataDome to zwykle chwilowy limit tempa**, a nie trwałe zaflagowanie
+  konta: seria wywołań pod rząd (listing + strony `/oferty-produktu`, które
+  dociąga `cheapest`) zaczyna dostawać captchę, po kilku minutach przerwy
+  przestaje. Najpierw więc odczekaj i ponów. Gdy blokada wraca uparcie,
+  `allegro unblock` otwiera okno na stronie, która realnie pokazuje captchę —
+  sonduje ścieżkę strona główna → listing → oferty produktu, bo sama strona
+  główna przechodzi praktycznie zawsze i nie byłoby czego rozwiązywać.
 
 ## Skill „zakupy"
 
